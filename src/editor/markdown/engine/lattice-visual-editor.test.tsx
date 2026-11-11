@@ -1,5 +1,6 @@
 /** Clean implementation for Lattice; spec: docs/visual-editor-spec.md */
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { DOMParser, DOMSerializer } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,12 +35,95 @@ function appendToBlock(editor: Editor, index: number, text: string) {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 400));
 
+/** The text of the first `selector` element in `color`, whichever of the two the editor nests outside. */
+function coloredText(color: string, selector: string) {
+  const within = `[data-lattice-color="${color}"]`;
+  return Array.from(surface().querySelectorAll(selector)).find((node) => node.closest(within) ?? node.querySelector(within))?.textContent;
+}
+
 afterEach(() => {
   cleanup();
   localStorage.clear();
 });
 
 describe("Lattice visual Markdown editor", () => {
+  it("renders and edits the issue's colored prose without raw span chips or writes on open", async () => {
+    const text = '<span style="color: blue">*New estimate:* $x=2$.</span>\n\n<span style="color: red">~~Old estimate.~~</span>';
+    const view = renderEditor({ text });
+    expect(coloredText("blue", "em")).toBe("New estimate:");
+    await waitFor(() => expect(surface().querySelector('[data-lattice-color="blue"] .lx-md-math')?.getAttribute("data-formula")).toBe("x=2"));
+    expect(coloredText("red", "s")).toBe("Old estimate.");
+    expect(surface().querySelector<HTMLElement>('[data-lattice-color="blue"]')?.style.color).toBe("blue");
+    expect(surface().querySelector(".lx-md-raw-inline")).toBeNull();
+    expect(surface().textContent).not.toContain("<span");
+    await settle();
+    expect(view.onChange).not.toHaveBeenCalled();
+
+    act(() => {
+      view.editor.commands.setTextSelection({ from: 1, to: 13 });
+      view.editor.commands.insertContent("Updated estimate");
+    });
+    const saved = text.replace("New estimate", "Updated estimate");
+    await waitFor(() => expect(view.onChange).toHaveBeenCalledWith(saved, text));
+    view.unmount();
+    const reopened = renderEditor({ text: saved });
+    expect(coloredText("blue", "em")).toBe("Updated estimate:");
+    expect(coloredText("red", "s")).toBe("Old estimate.");
+    await settle();
+    expect(reopened.onChange).not.toHaveBeenCalled();
+  });
+
+  it("composes color with links, both math delimiters, and every supported prose mark", async () => {
+    renderEditor({ text: '<span style="color: #3366cc">[review](https://example.test) $x=2$ \\(y=3\\) **bold** *italic* ~~strike~~ <u>underlined</u> ==highlighted== `code`</span>' });
+    expect(coloredText("#3366cc", "a[href='https://example.test']")).toBe("review");
+    await waitFor(() => expect(Array.from(surface().querySelectorAll('[data-lattice-color="#3366cc"] .lx-md-math'), (node) => node.getAttribute("data-formula"))).toEqual(["x=2", "y=3"]));
+    for (const [tag, text] of [["strong", "bold"], ["em", "italic"], ["s", "strike"], ["u", "underlined"], ["mark", "highlighted"], ["code", "code"]]) {
+      expect(coloredText("#3366cc", tag)).toBe(text);
+    }
+    expect(surface().querySelector(".lx-md-raw-inline")).toBeNull();
+  });
+
+  it("continues color at the trailing boundary but not before the run through publication and reopen", async () => {
+    const text = 'before <span style="color: red">middle</span> after';
+    const view = renderEditor({ text });
+    act(() => {
+      view.editor.view.dispatch(view.editor.state.tr.insertText("!", 14));
+      view.editor.view.dispatch(view.editor.state.tr.insertText("?", 8));
+    });
+    const saved = 'before ?<span style="color: red">middle!</span> after';
+    await waitFor(() => expect(view.onChange).toHaveBeenCalledWith(saved, text));
+    view.unmount();
+    renderEditor({ text: saved });
+    expect(surface().querySelector('[data-lattice-color="red"]')?.textContent).toBe("middle!");
+    expect(surface().textContent).toBe("before ?middle! after");
+  });
+
+  it("rereads color DOM without copying unrelated styles or event attributes", () => {
+    const { editor } = renderEditor({ text: '<span style="color: #AbC">**note**</span>' });
+    const container = document.createElement("div");
+    const serializer = DOMSerializer.fromSchema(editor.schema);
+    const parser = DOMParser.fromSchema(editor.schema);
+    container.append(serializer.serializeFragment(editor.state.doc.content));
+    expect(parser.parse(container).toJSON()).toEqual(editor.state.doc.toJSON());
+
+    container.innerHTML = '<p><span data-lattice-color=" blue " style="color: red; background: yellow" onclick="alert(1)" title="discard">note</span></p>';
+    const imported = parser.parse(container);
+    expect(imported.firstChild?.firstChild?.marks.map((mark) => [mark.type.name, mark.attrs.color])).toEqual([["latticeColor", "blue"]]);
+    container.replaceChildren(serializer.serializeFragment(imported.content));
+    const span = container.querySelector("span")!;
+    expect(span.getAttributeNames().sort()).toEqual(["data-lattice-color", "style"]);
+    expect(span.style.length).toBe(1);
+    expect(span.style.color).toBe("blue");
+
+    for (const html of [
+      '<span data-lattice-color="var(--x)">note</span>', '<span data-lattice-color="red; background: yellow">note</span>',
+      '<span data-lattice-color="notAColor">note</span>', '<span style="color: blue">note</span>',
+    ]) {
+      container.innerHTML = `<p>${html}</p>`;
+      expect(parser.parse(container).firstChild?.firstChild?.marks).toEqual([]);
+    }
+  });
+
   it("renders Markdown visually, keeps unmodelled source verbatim, and never writes on open", async () => {
     const { onChange } = renderEditor({ text: "# Title\n\n- one\n- two\n\n<Tabs mode=\"x\">\n\nBody\n\n</Tabs>\n" });
     expect(surface().querySelector("h1")?.textContent).toBe("Title");
