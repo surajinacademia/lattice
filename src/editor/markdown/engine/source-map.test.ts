@@ -69,6 +69,15 @@ describe("caret to source (R-SRC-1)", () => {
     }
   });
 
+  it("gives colored prose in a legacy JSON callout no mapping rather than one inside the tag", () => {
+    const text = '```rw-component callout\n{"content": "<span style=\\"color: red\\">red</span>"}\n```';
+    const map = mapOf(text);
+    expect(map.positionToOffset(inText(map.doc, "red", 0))).toBeNull();
+    for (const offset of [text.indexOf("red"), text.indexOf(">red") + 1]) {
+      for (const snap of ["exact", "forward", "backward"] as const) expect(map.offsetToPosition(offset, snap)).toBeNull();
+    }
+  });
+
   it.each([
     ["# Hello", "Hello", 2, [0, 4]],
     ["**bold**", "bold", 2, [0, 4]],

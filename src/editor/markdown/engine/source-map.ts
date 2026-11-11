@@ -279,7 +279,7 @@ export class SourceMap {
 function alignBlock(node: PmNode, source: string): Segment[] {
   const color = node.type.schema.marks.latticeColor;
   if (color && /<span[ \t]+style/i.test(source) && node.rangeHasMark(0, node.content.size, color)) {
-    const visible = colorSourceOffsets(source);
+    const visible = colorSourceOffsets(node, source);
     return visible.restore(alignContent(node, visible.text));
   }
   return alignContent(node, source);
