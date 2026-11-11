@@ -73,6 +73,18 @@ Lattice 不自带模型，也没有自己的 AI 订阅。
 幻灯片是基于 [Open Slide](https://github.com/open-slide/open-slide) 的 React 演示文稿：可以编辑、评论、让智能体修改，并直接在 Lattice 中放映。
 **导入文件…** 可以带入 Mac 上的任何其他文件。
 
+### Markdown 文字颜色
+
+在 Markdown 笔记中，只含一个 `style="color: …"` 的行内 `<span>` 会显示为彩色文字，可像普通文字一样编辑，标签本身不显示。颜色可与斜体、粗体、删除线、下划线、高亮、链接、行内代码以及 `$…$` 或 `\(…\)` 公式组合，彩色 span 也可以嵌套：
+
+```markdown
+<span style="color: blue">*New estimate:* $x=2$.</span>
+<span style="color: red">~~Old estimate.~~</span>
+<span style='color: #3366cc;'>reviewer note</span>
+```
+
+颜色值可以是编辑器所用 WebKit 能识别的任何 CSS 颜色：命名颜色、十六进制、`rgb()`、`hsl()`、`oklch()` 等。开始标签需写在同一行。带有其他属性或声明的 span，或使用 `var()`、`url()`、`inherit`、`!important` 的颜色，会按源码显示；支持颜色并不会启用其他行内 HTML。保存时保留原样的标签；颜色在浅色和深色主题中保持不变，请选择两种主题下都清晰的颜色。
+
 ## 历史
 
 <img src="docs/images/history.webp" alt="历史面板：智能体改写摘要的条目展开为差异，带恢复文件按钮，下面是一次引用、你自己的编辑和合作者保存的版本，右侧是编译好的 PDF" width="900" />
