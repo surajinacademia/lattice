@@ -22,6 +22,12 @@ function renderEditor(given: Partial<Props>) {
   return { onChange };
 }
 
+/** The first `selector` element in `color` under `root`, whichever of the two the editor nests outside. */
+function colored(root: HTMLElement, color: string, selector: string) {
+  const within = `[data-lattice-color="${color}"]`;
+  return Array.from(root.querySelectorAll(selector)).find((node) => node.closest(within) ?? node.querySelector(within));
+}
+
 /** An IntersectionObserver under which only the first chunk is near the viewport. */
 function onlyFirstChunkVisible() {
   class FirstChunkObserver {
@@ -146,6 +152,83 @@ describe("the passive view (R-PERF-1–4)", () => {
     expect(onLoadAsset).not.toHaveBeenCalled();
     // Chunks away from the viewport are not drawn.
     expect(passive()!.querySelector("[data-visual-chunk-id='chunk-24'] .lx-md-surface")).toBeNull();
+  });
+
+  it("retains authored colors, links, math and inert raw source when the passive view activates the full editor", async () => {
+    const onOpenProjectPath = vi.fn();
+    const unsupported = '<span style="color: red" onclick="alert(1)">unsupported</span>';
+    const script = "<script>alert(2)</script>";
+    const { onChange } = renderEditor({
+      text: [
+        '<span style="color: blue">*New estimate:* $x=2$.</span>',
+        '<span style="color: red">~~Old estimate.~~</span>',
+        '<span style="color: #3366cc">[review](other.md) and \\(y=3\\)</span>',
+        `Raw ${unsupported} and ${script}.`,
+        ...blocks(180),
+      ].join("\n\n"),
+      onOpenProjectPath,
+    });
+    const view = passive()!;
+    expect(view).toHaveAttribute("data-virtualized", "true");
+    await waitFor(() => expect(view.querySelectorAll(".katex")).toHaveLength(2));
+
+    const assertContent = (root: HTMLElement) => {
+      expect(root.querySelector('[data-lattice-color="blue"]')).toHaveStyle({ color: "rgb(0, 0, 255)" });
+      expect(colored(root, "blue", "em")).toHaveTextContent("New estimate:");
+      expect(root.querySelector('[data-lattice-color="blue"] .katex')).not.toBeNull();
+      expect(root.querySelector('[data-lattice-color="red"]')).toHaveStyle({ color: "rgb(255, 0, 0)" });
+      expect(colored(root, "red", "s")).toHaveTextContent("Old estimate.");
+      expect(root.querySelector('[data-lattice-color="#3366cc"]')).toHaveStyle({ color: "rgb(51, 102, 204)" });
+      expect(colored(root, "#3366cc", "a")).toHaveAttribute("href", "other.md");
+      expect(root.querySelector('[data-lattice-color="#3366cc"] .katex')).not.toBeNull();
+      for (const tag of ['<span style="color: blue">', '<span style="color: red">', '<span style="color: #3366cc">']) {
+        expect(root).not.toHaveTextContent(tag);
+      }
+      expect(root).toHaveTextContent(unsupported);
+      expect(root).toHaveTextContent(script);
+      expect(root.querySelector("script, [onclick]")).toBeNull();
+    };
+    assertContent(view);
+    fireEvent.click(screen.getByRole("link", { name: "review" }));
+    expect(onOpenProjectPath).toHaveBeenCalledWith("other.md");
+    expect(passive()).toBe(view);
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit document" }));
+    const complete = await screen.findByRole("textbox", { name: "Markdown document editor" });
+    await waitFor(() => expect(complete.querySelectorAll(".katex")).toHaveLength(2));
+    assertContent(complete);
+    expect(passive()).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps supported color markup hidden and unsupported source visible across light and dark themes", async () => {
+    const previousTheme = document.documentElement.getAttribute("data-theme");
+    const unsupported = '<span style="color: var(--review-color)">raw note</span>';
+    try {
+      document.documentElement.setAttribute("data-theme", "light");
+      const { onChange } = renderEditor({
+        text: ['<span style="color: #3366cc">Reviewer note</span>', `Before ${unsupported} after.`, ...blocks(180)].join("\n\n"),
+      });
+      const view = passive()!;
+      await waitFor(() => expect(view).toHaveTextContent("Reviewer note"));
+      const color = view.querySelector<HTMLElement>('[data-lattice-color="#3366cc"]')!;
+      const authoredStyle = color.getAttribute("style");
+      // jsdom proves mark and style fidelity; the cascade itself needs a browser.
+      for (const theme of ["dark", "light"]) {
+        await act(() => { document.documentElement.setAttribute("data-theme", theme); });
+        expect(view.querySelector('[data-lattice-color="#3366cc"]')).toBe(color);
+        expect(color).toHaveTextContent("Reviewer note");
+        expect(color.getAttribute("style")).toBe(authoredStyle);
+        expect(color).toHaveStyle({ color: "rgb(51, 102, 204)" });
+        expect(view).not.toHaveTextContent('<span style="color: #3366cc">');
+        expect(view).toHaveTextContent(unsupported);
+        expect(view.querySelectorAll("[data-lattice-color]")).toHaveLength(1);
+      }
+      expect(onChange).not.toHaveBeenCalled();
+    } finally {
+      if (previousTheme === null) document.documentElement.removeAttribute("data-theme");
+      else document.documentElement.setAttribute("data-theme", previousTheme);
+    }
   });
 });
 

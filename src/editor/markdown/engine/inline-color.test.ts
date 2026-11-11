@@ -75,6 +75,21 @@ describe("editable Markdown text colors", () => {
     expect(render(open(written.text).doc).querySelector("em")?.textContent).toBe("lNew abel");
   });
 
+  it("keeps math, bold, underline, highlight and code with their color inside one span through an edit elsewhere", () => {
+    const source = 'A <span style="color: red">\\(x=2\\) **bold** <u>under</u> ==mark== `code`</span> z';
+    const { doc, baseline } = open(source);
+    const children = doc.child(0).children;
+    const math = children.find((node) => node.type.name === "latticeMath");
+    expect(math?.attrs.source).toBe("\\(x=2\\)");
+    expect(math?.marks.map((mark) => mark.type.name)).toEqual(["latticeColor"]);
+    for (const [mark, text] of [["bold", "bold"], ["underline", "under"], ["highlight", "mark"], ["code", "code"]]) {
+      expect(children.find((node) => node.text === text)?.marks.map((each) => each.type.name)).toEqual([mark, "latticeColor"]);
+    }
+    const written = serializeMarkdown(EditorState.create({ doc }).tr.insertText("!", 2).doc, baseline);
+    expect(written.verified).toBe(true);
+    expect(written.text).toBe(source.replace("A ", "A! "));
+  });
+
   it("retains adjacent colors, spaces and tag spelling after DOM re-read and editing", () => {
     const source = "A <SPAN STYLE=' COLOR : #09F ; '> first </SPAN><span style='color:red'>next</span>.";
     const { doc, baseline } = open(source);

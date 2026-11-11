@@ -78,6 +78,18 @@ Markdown notes edited in blocks, tldraw whiteboards, interactive HTML pages and 
 Slides are React decks powered by [Open Slide](https://github.com/open-slide/open-slide): edit them, comment on them, let the agent revise them, and present from Lattice.
 **Import files…** brings in anything else from your Mac.
 
+### Markdown text colors
+
+In a Markdown note, an inline `<span>` with a single `style="color: …"` shows as colored text you edit like any other text; the tags stay hidden. Color works around italics, bold, strikethrough, underline, highlight, links, inline code and `$…$` or `\(…\)` math, and colored spans can nest:
+
+```markdown
+<span style="color: blue">*New estimate:* $x=2$.</span>
+<span style="color: red">~~Old estimate.~~</span>
+<span style='color: #3366cc;'>reviewer note</span>
+```
+
+The value can be any CSS color the editor's WebKit understands: named colors, hex, `rgb()`, `hsl()`, `oklch()` and similar. Keep the opening tag on one line. A span with any other attribute or declaration, or a color that uses `var()`, `url()`, `inherit` or `!important`, stays visible as source; colors don't turn on any other inline HTML. Saving keeps your tags as written, and colors look the same in light and dark themes, so pick ones that read on both.
+
 ## History
 
 <img src="docs/images/history.webp" alt="History panel: the agent's rewrite of the abstract expanded to its diff with Restore this file, followed by a citation, your own edit and co-authors' saved versions, with the compiled PDF on the right" width="900" />

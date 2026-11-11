@@ -1,10 +1,18 @@
+import type { Node as PmNode } from "@tiptap/pm/model";
 import { colorSpans, type Phrasing } from "./inline-syntax";
 import { parseMarkdownTree } from "./markdown-syntax";
 import { MODELLED_COMPONENTS, findClosingTag, readOpenTag } from "./mdx-components";
 import type { Segment } from "./source-map";
 
 /** Align a colored block against the text between its tags, then restore the original source coordinates. */
-export function colorSourceOffsets(source: string) {
+export function colorSourceOffsets(block: PmNode, source: string) {
+  // The fences the import read as legacy callouts, by their exact source.
+  const legacy = new Set<string>();
+  const collect = (child: PmNode) => {
+    if (child.type.name === "latticeComponent" && typeof child.attrs.legacy === "string") legacy.add(child.attrs.legacy);
+  };
+  collect(block);
+  block.descendants(collect);
   const skip = new Uint8Array(source.length);
   function visit(node: Phrasing, base: number) {
     // CommonMark groups a compact component as raw HTML. The editor reads
@@ -18,6 +26,15 @@ export function colorSourceOffsets(source: string) {
           visit(parseMarkdownTree(source.slice(open.end, close.start)) as unknown as Phrasing, open.end);
         }
       }
+    }
+    // A legacy callout's body is a decoded JSON string, whose offsets are not
+    // source offsets: hide the whole fence so its prose gets no exact mapping
+    // rather than one inside the escaped tag attributes.
+    if (node.type === "code") {
+      const from = base + node.position!.start.offset!;
+      const to = base + node.position!.end.offset!;
+      if (legacy.has(source.slice(from, to))) skip.fill(1, from, to);
+      return;
     }
     if (!node.children) return;
     colorSpans(node.children, (open, close) => {
